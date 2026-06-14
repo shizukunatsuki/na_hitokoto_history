@@ -152,22 +152,33 @@ async function handleAdd(request, env) {
   const validation = validateAddPayload(body.value, env);
   if (!validation.ok) return validation.response;
 
-  const existing = await env.HISTORY_DB.prepare(
-    "SELECT id FROM history WHERE id = ? LIMIT 1",
-  )
-    .bind(validation.id)
-    .first();
+  try {
+    const existing = await env.HISTORY_DB.prepare(
+      "SELECT id FROM history WHERE id = ? LIMIT 1",
+    )
+      .bind(validation.id)
+      .first();
 
-  if (existing) {
-    return json({ error: "duplicate_id", id: validation.id }, 409);
+    if (existing) {
+      return json({ error: "duplicate_id", id: validation.id }, 409);
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    await env.HISTORY_DB.prepare(
+      "INSERT INTO history (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    )
+      .bind(validation.id, validation.content, now, now)
+      .run();
+  } catch (error) {
+    console.error(error);
+    return json(
+      {
+        error: "database_write_failed",
+        message: error instanceof Error ? error.message : String(error),
+      },
+      500,
+    );
   }
-
-  const now = Math.floor(Date.now() / 1000);
-  await env.HISTORY_DB.prepare(
-    "INSERT INTO history (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
-  )
-    .bind(validation.id, validation.content, now, now)
-    .run();
 
   return json({ ok: true, id: validation.id, inserted: 1 }, 201);
 }
