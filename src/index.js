@@ -152,10 +152,11 @@ async function handleAdd(request, env) {
   const validation = validateAddPayload(body.value, env);
   if (!validation.ok) return validation.response;
 
+  const now = Math.floor(Date.now() / 1000);
   const result = await env.HISTORY_DB.prepare(
-    "INSERT OR IGNORE INTO history (id, content) VALUES (?, ?)",
+    "INSERT OR IGNORE INTO history (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
   )
-    .bind(validation.id, validation.content)
+    .bind(validation.id, validation.content, now, now)
     .run();
   const inserted = result.meta?.changes ?? 0;
 

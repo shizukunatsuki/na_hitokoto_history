@@ -446,11 +446,13 @@ function createD1() {
         async run() {
           queryCount++;
           if (sql.includes("INSERT OR IGNORE INTO history")) {
-            const [id, content] = statement.params;
+            const [id, content, createdAt, updatedAt] = statement.params;
             if (records.has(id)) {
               return { success: true, meta: { changes: 0 } };
             }
-            records.set(id, { id, content });
+            assert.equal(typeof createdAt, "number");
+            assert.equal(typeof updatedAt, "number");
+            records.set(id, { id, content, created_at: createdAt, updated_at: updatedAt });
             return { success: true, meta: { changes: 1 } };
           }
 
