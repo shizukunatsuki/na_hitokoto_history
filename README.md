@@ -80,7 +80,7 @@ npm exec wrangler -- d1 migrations apply na_hitokoto_history --remote
 - `created_at`：Unix 秒级时间戳
 - `updated_at`：Unix 秒级时间戳
 
-写入时会根据 `MAX_HISTORY_ROWS` 控制最大保留数量。达到上限后，`POST /add` 会先删除最早的历史记录，再写入新内容。
+写入时会根据 `MAX_HISTORY_ROWS` 控制最大保留数量。达到上限后，`POST /add` 会先删除最早的历史记录，再写入新内容。这个限制按行数估算容量，不是 D1 的实时字节数；默认值留有余量，避免接近 Free Plan 单库 500 MB 时才开始失败。
 
 当前 ID 约束使用：
 
@@ -362,7 +362,7 @@ MAX_CONTENT_LENGTH = "2000"
 PUBLIC_RANDOM_SIZE = "128"
 PUBLIC_RANDOM_KV_KEY = "random_history"
 D1_QUERY_BUDGET = "45"
-MAX_HISTORY_ROWS = "100000"
+MAX_HISTORY_ROWS = "50000"
 ```
 
 设计目标是适配 Cloudflare Free Plan：
@@ -379,7 +379,7 @@ MAX_HISTORY_ROWS = "100000"
 - `/match` 会先估算 D1 query 数，超过 `D1_QUERY_BUDGET` 直接拒绝。
 - `FFFFFFFFFFFFFFFF` 随机查询最坏需要 2 次 D1 query。
 - `/get` 重建 KV 时执行 1 次 D1 query，默认最多随机返回 128 条；这次查询会读取当前 history 表用于随机排序。
-- `MAX_HISTORY_ROWS=100000` 且每小时刷新时，`/get` 的定时随机刷新约读取 240 万行/天，低于 D1 Free 的 500 万 rows read/day。
+- `MAX_HISTORY_ROWS=50000` 且每小时刷新时，`/get` 的定时随机刷新约读取 120 万行/天，低于 D1 Free 的 500 万 rows read/day。
 - `/add` 会在行数达到 `MAX_HISTORY_ROWS` 时自动删除最早内容，避免 D1 持续增长到容量上限。
 - cron 每小时写一次同一个 KV key，每天约 24 次，低于 KV 写入限制。
 

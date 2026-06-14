@@ -417,7 +417,7 @@ function createEnv(overrides = {}) {
     MAX_CONTENT_LENGTH: "2000",
     PUBLIC_RANDOM_SIZE: "128",
     PUBLIC_RANDOM_KV_KEY: "random_history",
-    MAX_HISTORY_ROWS: "100000",
+    MAX_HISTORY_ROWS: "50000",
     HISTORY_DB: createD1(),
     kv_public_get: createKv(),
     ...overrides,

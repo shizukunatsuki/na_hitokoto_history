@@ -5,7 +5,7 @@ const DEFAULT_MAX_CONTENT_LENGTH = 2000;
 const DEFAULT_PUBLIC_RANDOM_SIZE = 128;
 const DEFAULT_PUBLIC_RANDOM_KV_KEY = "random_history";
 const DEFAULT_D1_QUERY_BUDGET = 45;
-const DEFAULT_MAX_HISTORY_ROWS = 100000;
+const DEFAULT_MAX_HISTORY_ROWS = 50000;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
