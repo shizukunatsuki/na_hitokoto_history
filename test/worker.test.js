@@ -251,6 +251,37 @@ test("add accepts upstream field aliases and delete accepts content_id", async (
   assert.equal((await response.json()).deleted, 1);
 });
 
+test("add prunes the oldest history row when the row cap is reached", async () => {
+  const env = createEnv({ MAX_HISTORY_ROWS: "2" });
+
+  await seedHistory(env, [
+    ["0000000000000001", "oldest"],
+    ["0000000000000002", "middle"],
+  ]);
+
+  const response = await fetchWorker(env, "/add", {
+    method: "POST",
+    body: { id: "0000000000000003", content: "newest" },
+  });
+  assert.equal(response.status, 201);
+
+  let match = await fetchWorker(env, "/match", {
+    method: "POST",
+    body: { key: ["0000000000000001"] },
+  });
+  assert.equal(match.status, 404);
+
+  match = await fetchWorker(env, "/match", {
+    method: "POST",
+    body: { key: ["0000000000000002", "0000000000000003"] },
+  });
+  assert.equal(match.status, 200);
+  assert.deepEqual((await match.json()).data, {
+    "0000000000000002": "middle",
+    "0000000000000003": "newest",
+  });
+});
+
 test("serializes D1 bigint metadata in delete JSON responses", async () => {
   const env = createEnv({ HISTORY_DB: createD1({ useBigIntMeta: true }) });
 
@@ -386,6 +417,7 @@ function createEnv(overrides = {}) {
     MAX_CONTENT_LENGTH: "2000",
     PUBLIC_RANDOM_SIZE: "128",
     PUBLIC_RANDOM_KV_KEY: "random_history",
+    MAX_HISTORY_ROWS: "100000",
     HISTORY_DB: createD1(),
     kv_public_get: createKv(),
     ...overrides,
@@ -439,6 +471,7 @@ function createKv() {
 function createD1(options = {}) {
   const records = new Map();
   let queryCount = 0;
+  let insertSequence = 0;
   const meta = (changes) => ({
     changes,
     ...(options.useBigIntMeta ? { last_row_id: 1n } : {}),
@@ -460,6 +493,10 @@ function createD1(options = {}) {
           if (sql.includes("WHERE id = ?")) {
             const row = records.get(statement.params[0]);
             return row ? { ...row } : null;
+          }
+
+          if (sql.includes("COUNT(*) AS count")) {
+            return { count: records.size };
           }
 
           if (sql.includes("WHERE id >= ?")) {
@@ -517,13 +554,36 @@ function createD1(options = {}) {
             const [id, content, createdAt, updatedAt] = statement.params;
             assert.equal(typeof createdAt, "number");
             assert.equal(typeof updatedAt, "number");
-            records.set(id, { id, content, created_at: createdAt, updated_at: updatedAt });
+            insertSequence++;
+            records.set(id, {
+              id,
+              content,
+              created_at: createdAt + insertSequence,
+              updated_at: updatedAt + insertSequence,
+            });
             return { success: true, meta: meta(1) };
           }
 
           if (sql.includes("DELETE FROM history WHERE id = ?")) {
             const deleted = records.delete(statement.params[0]) ? 1 : 0;
             return { success: true, meta: meta(deleted) };
+          }
+
+          if (sql.includes("DELETE FROM history WHERE id IN")) {
+            const [limit] = statement.params;
+            const ids = [...records.values()]
+              .sort(
+                (left, right) =>
+                  left.created_at - right.created_at || left.id.localeCompare(right.id),
+              )
+              .slice(0, limit)
+              .map((row) => row.id);
+
+            for (const id of ids) {
+              records.delete(id);
+            }
+
+            return { success: true, meta: meta(ids.length) };
           }
 
           throw new Error(`Unsupported run SQL: ${sql}`);

@@ -80,6 +80,8 @@ npm exec wrangler -- d1 migrations apply na_hitokoto_history --remote
 - `created_at`：Unix 秒级时间戳
 - `updated_at`：Unix 秒级时间戳
 
+写入时会根据 `MAX_HISTORY_ROWS` 控制最大保留数量。达到上限后，`POST /add` 会先删除最早的历史记录，再写入新内容。
+
 当前 ID 约束使用：
 
 ```sql
@@ -358,6 +360,7 @@ MAX_CONTENT_LENGTH = "2000"
 PUBLIC_RANDOM_SIZE = "128"
 PUBLIC_RANDOM_KV_KEY = "random_history"
 D1_QUERY_BUDGET = "45"
+MAX_HISTORY_ROWS = "100000"
 ```
 
 设计目标是适配 Cloudflare Free Plan：
@@ -374,6 +377,7 @@ D1_QUERY_BUDGET = "45"
 - `/match` 会先估算 D1 query 数，超过 `D1_QUERY_BUDGET` 直接拒绝。
 - `FFFFFFFFFFFFFFFF` 随机查询最坏需要 2 次 D1 query。
 - `/get` 重建 KV 时最多执行 2 次 D1 query，默认最多返回 128 条。
+- `/add` 会在行数达到 `MAX_HISTORY_ROWS` 时自动删除最早内容，避免 D1 持续增长到容量上限。
 - cron 每小时写一次同一个 KV key，每天约 24 次，低于 KV 写入限制。
 
 ## 本地测试
@@ -392,6 +396,7 @@ npm test
 - 随机 ID 返回真实 ID
 - KV miss 后从 D1 重建
 - cron 刷新 KV
+- 达到历史行数上限时自动删除最早记录
 - D1 query budget
 - D1 BigInt metadata JSON 序列化
 

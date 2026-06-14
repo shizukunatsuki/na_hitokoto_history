@@ -5,6 +5,7 @@ const DEFAULT_MAX_CONTENT_LENGTH = 2000;
 const DEFAULT_PUBLIC_RANDOM_SIZE = 128;
 const DEFAULT_PUBLIC_RANDOM_KV_KEY = "random_history";
 const DEFAULT_D1_QUERY_BUDGET = 45;
+const DEFAULT_MAX_HISTORY_ROWS = 100000;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -163,6 +164,8 @@ async function handleAdd(request, env) {
       return json({ error: "duplicate_id", id: validation.id }, 409);
     }
 
+    await pruneOldestHistoryIfNeeded(env);
+
     const now = Math.floor(Date.now() / 1000);
     await env.HISTORY_DB.prepare(
       "INSERT INTO history (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
@@ -181,6 +184,23 @@ async function handleAdd(request, env) {
   }
 
   return json({ ok: true, id: validation.id, inserted: 1 }, 201);
+}
+
+async function pruneOldestHistoryIfNeeded(env) {
+  const maxRows = getMaxHistoryRows(env);
+  if (maxRows <= 0) return;
+
+  const row = await env.HISTORY_DB.prepare(
+    "SELECT COUNT(*) AS count FROM history",
+  ).first();
+  const count = Number(row?.count ?? 0);
+  if (count < maxRows) return;
+
+  await env.HISTORY_DB.prepare(
+    "DELETE FROM history WHERE id IN (SELECT id FROM history ORDER BY created_at ASC, id ASC LIMIT ?)",
+  )
+    .bind(count - maxRows + 1)
+    .run();
 }
 
 async function handleDelete(request, env) {
@@ -479,6 +499,15 @@ function getMaxContentLength(env) {
 
 function getPublicRandomKvKey(env) {
   return env.PUBLIC_RANDOM_KV_KEY || DEFAULT_PUBLIC_RANDOM_KV_KEY;
+}
+
+function getMaxHistoryRows(env) {
+  return getPositiveInteger(
+    env.MAX_HISTORY_ROWS,
+    DEFAULT_MAX_HISTORY_ROWS,
+    0,
+    1000000,
+  );
 }
 
 function createRandomId() {
