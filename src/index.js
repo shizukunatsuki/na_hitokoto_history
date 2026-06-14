@@ -152,26 +152,24 @@ async function handleAdd(request, env) {
   const validation = validateAddPayload(body.value, env);
   if (!validation.ok) return validation.response;
 
-  const now = Math.floor(Date.now() / 1000);
-  const result = await env.HISTORY_DB.prepare(
-    "INSERT OR IGNORE INTO history (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
+  const existing = await env.HISTORY_DB.prepare(
+    "SELECT id FROM history WHERE id = ? LIMIT 1",
   )
-    .bind(validation.id, validation.content, now, now)
-    .run();
-  const inserted = result.meta?.changes ?? 0;
+    .bind(validation.id)
+    .first();
 
-  if (inserted === 0) {
+  if (existing) {
     return json({ error: "duplicate_id", id: validation.id }, 409);
   }
 
-  return json(
-    {
-      ok: result.success,
-      id: validation.id,
-      meta: result.meta,
-    },
-    result.success ? 201 : 500,
-  );
+  const now = Math.floor(Date.now() / 1000);
+  await env.HISTORY_DB.prepare(
+    "INSERT INTO history (id, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
+  )
+    .bind(validation.id, validation.content, now, now)
+    .run();
+
+  return json({ ok: true, id: validation.id, inserted: 1 }, 201);
 }
 
 async function handleDelete(request, env) {

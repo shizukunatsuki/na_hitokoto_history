@@ -13,7 +13,7 @@ test("add, match, random get, and delete history content", async () => {
   assert.deepEqual(await response.json(), {
     ok: true,
     id: "0123456789ABCDEF",
-    meta: { changes: 1 },
+    inserted: 1,
   });
 
   response = await fetchWorker(env, "/add", {
@@ -233,7 +233,7 @@ test("add accepts upstream field aliases and delete accepts content_id", async (
   assert.equal((await response.json()).deleted, 1);
 });
 
-test("serializes D1 bigint metadata in JSON responses", async () => {
+test("serializes D1 bigint metadata in delete JSON responses", async () => {
   const env = createEnv({ HISTORY_DB: createD1({ useBigIntMeta: true }) });
 
   let response = await fetchWorker(env, "/add", {
@@ -242,7 +242,11 @@ test("serializes D1 bigint metadata in JSON responses", async () => {
   });
 
   assert.equal(response.status, 201);
-  assert.equal((await response.json()).meta.last_row_id, "1");
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    id: "2222222222222222",
+    inserted: 1,
+  });
 
   response = await fetchWorker(env, "/delete", {
     method: "POST",
@@ -469,11 +473,8 @@ function createD1(options = {}) {
         },
         async run() {
           queryCount++;
-          if (sql.includes("INSERT OR IGNORE INTO history")) {
+          if (sql.includes("INSERT INTO history")) {
             const [id, content, createdAt, updatedAt] = statement.params;
-            if (records.has(id)) {
-              return { success: true, meta: meta(0) };
-            }
             assert.equal(typeof createdAt, "number");
             assert.equal(typeof updatedAt, "number");
             records.set(id, { id, content, created_at: createdAt, updated_at: updatedAt });
