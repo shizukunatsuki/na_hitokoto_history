@@ -1,0 +1,26 @@
+name = "na-hitokoto-history"
+main = "src/index.js"
+compatibility_date = "2026-06-14"
+
+routes = [
+  { pattern = "history.hitokoto.natsuki.cloud", custom_domain = true }
+]
+
+[vars]
+MAX_BATCH_SIZE = "25"
+MAX_CONTENT_LENGTH = "2000"
+PUBLIC_RANDOM_SIZE = "20"
+PUBLIC_RANDOM_KV_KEY = "random_history"
+D1_QUERY_BUDGET = "45"
+
+[[d1_databases]]
+binding = "HISTORY_DB"
+database_name = "na_hitokoto_history"
+database_id = "replace-with-your-d1-database-id"
+
+[[kv_namespaces]]
+binding = "kv_public_get"
+id = "replace-with-your-kv-namespace-id"
+
+[triggers]
+crons = ["*/30 * * * *"]

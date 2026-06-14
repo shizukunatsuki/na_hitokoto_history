@@ -1,0 +1,16 @@
+{
+  "name": "na-hitokoto-history",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test",
+    "d1:migrate:local": "wrangler d1 migrations apply na_hitokoto_history --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply na_hitokoto_history --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
