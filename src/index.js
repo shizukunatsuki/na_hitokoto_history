@@ -2,7 +2,7 @@ const HEX_16_RE = /^[0-9a-fA-F]{16}$/;
 const RESERVED_ID = "FFFFFFFFFFFFFFFF";
 const DEFAULT_MAX_BATCH_SIZE = 25;
 const DEFAULT_MAX_CONTENT_LENGTH = 2000;
-const DEFAULT_PUBLIC_RANDOM_SIZE = 20;
+const DEFAULT_PUBLIC_RANDOM_SIZE = 128;
 const DEFAULT_PUBLIC_RANDOM_KV_KEY = "random_history";
 const DEFAULT_D1_QUERY_BUDGET = 45;
 const CORS_HEADERS = {
@@ -223,17 +223,40 @@ async function buildPublicRandomMap(env) {
     env.PUBLIC_RANDOM_SIZE,
     DEFAULT_PUBLIC_RANDOM_SIZE,
     1,
-    20,
+    128,
   );
   const rows = new Map();
+  const randomId = createRandomId();
 
-  for (let attempt = 0; attempt < limit && rows.size < limit; attempt++) {
-    const row = await getRandomRow(env);
-    if (!row) break;
+  for (const row of await getRowsFromId(env, randomId, limit)) {
     rows.set(row.id, row.content);
   }
 
+  if (rows.size < limit) {
+    for (const row of await getRowsFromStart(env, limit - rows.size)) {
+      rows.set(row.id, row.content);
+    }
+  }
+
   return Object.fromEntries(rows);
+}
+
+async function getRowsFromId(env, id, limit) {
+  const result = await env.HISTORY_DB.prepare(
+    "SELECT id, content FROM history WHERE id >= ? ORDER BY id ASC LIMIT ?",
+  )
+    .bind(id, limit)
+    .all();
+  return result.results ?? [];
+}
+
+async function getRowsFromStart(env, limit) {
+  const result = await env.HISTORY_DB.prepare(
+    "SELECT id, content FROM history ORDER BY id ASC LIMIT ?",
+  )
+    .bind(limit)
+    .all();
+  return result.results ?? [];
 }
 
 async function getRandomRow(env) {

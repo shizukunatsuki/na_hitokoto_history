@@ -200,7 +200,7 @@ test("scheduled refresh writes public random content to KV", async () => {
 });
 
 test("public random rebuild stays under the default Free plan D1 query budget", async () => {
-  const env = createEnv({ PUBLIC_RANDOM_SIZE: "20" });
+  const env = createEnv({ PUBLIC_RANDOM_SIZE: "128" });
   await seedHistory(env, [["1111111111111111", "only row"]]);
   const queriesBeforeGet = env.HISTORY_DB.queryCount;
 
@@ -210,7 +210,25 @@ test("public random rebuild stays under the default Free plan D1 query budget", 
   assert.deepEqual(await response.json(), {
     "1111111111111111": "only row",
   });
-  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 40);
+  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 2);
+});
+
+test("public random rebuild can return 128 entries", async () => {
+  const env = createEnv({ PUBLIC_RANDOM_SIZE: "128" });
+  const entries = Array.from({ length: 150 }, (_, index) => [
+    index.toString(16).padStart(16, "0").toUpperCase(),
+    `history content ${index}`,
+  ]);
+  await seedHistory(env, entries);
+  const queriesBeforeGet = env.HISTORY_DB.queryCount;
+
+  const response = await worker.fetch(new Request("https://example.com/get"), env);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(Object.keys(body).length, 128);
+  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 2);
+  assert.deepEqual(await env.kv_public_get.get("random_history", "json"), body);
 });
 
 test("add accepts upstream field aliases and delete accepts content_id", async () => {
@@ -366,7 +384,7 @@ function createEnv(overrides = {}) {
     API_TOKEN: "test-token",
     MAX_BATCH_SIZE: "50",
     MAX_CONTENT_LENGTH: "2000",
-    PUBLIC_RANDOM_SIZE: "20",
+    PUBLIC_RANDOM_SIZE: "128",
     PUBLIC_RANDOM_KV_KEY: "random_history",
     HISTORY_DB: createD1(),
     kv_public_get: createKv(),
@@ -469,6 +487,28 @@ function createD1(options = {}) {
           throw new Error(`Unsupported first SQL: ${sql}`);
         },
         async all() {
+          queryCount++;
+          const sortedRows = [...records.values()].sort((left, right) =>
+            left.id.localeCompare(right.id),
+          );
+
+          if (sql.includes("WHERE id >= ?")) {
+            const [id, limit] = statement.params;
+            return {
+              results: sortedRows
+                .filter((candidate) => candidate.id >= id)
+                .slice(0, limit)
+                .map((row) => ({ ...row })),
+            };
+          }
+
+          if (sql.includes("ORDER BY id ASC LIMIT ?")) {
+            const [limit] = statement.params;
+            return {
+              results: sortedRows.slice(0, limit).map((row) => ({ ...row })),
+            };
+          }
+
           throw new Error(`Unsupported all SQL: ${sql}`);
         },
         async run() {

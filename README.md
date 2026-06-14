@@ -13,7 +13,7 @@ https://history.hitokoto.natsuki.cloud
 - 生产环境已经部署并通过端到端测试。
 - D1 数据库已经应用 `0001_create_history.sql` 和 `0002_simplify_history_id_check.sql`。
 - `POST /add`、`POST /match`、`GET /get`、`POST /delete` 均已在生产环境验证可用。
-- `GET /get` 刚部署或库为空时可能返回 `{}`，这是正常状态；cron 会每 30 分钟刷新 KV。
+- `GET /get` 刚部署或库为空时可能返回 `{}`，这是正常状态；cron 会每小时刷新 KV。
 
 ## 绑定与配置
 
@@ -299,7 +299,9 @@ return generatedContent;
 }
 ```
 
-数据来自 KV 的 `random_history` key。cron 每 30 分钟刷新一次。KV miss 时会从 D1 重建并写回 KV；如果 D1 为空，则返回 `{}`。
+数据来自 KV 的 `random_history` key。cron 每小时刷新一次。KV miss 时会从 D1 重建并写回 KV；如果 D1 为空，则返回 `{}`。
+
+当前最多返回 128 条历史内容。D1 中不足 128 条时，返回实际存在的数量。
 
 ### `POST /delete`
 
@@ -353,7 +355,7 @@ return generatedContent;
 ```toml
 MAX_BATCH_SIZE = "25"
 MAX_CONTENT_LENGTH = "2000"
-PUBLIC_RANDOM_SIZE = "20"
+PUBLIC_RANDOM_SIZE = "128"
 PUBLIC_RANDOM_KV_KEY = "random_history"
 D1_QUERY_BUDGET = "45"
 ```
@@ -371,8 +373,8 @@ D1_QUERY_BUDGET = "45"
 
 - `/match` 会先估算 D1 query 数，超过 `D1_QUERY_BUDGET` 直接拒绝。
 - `FFFFFFFFFFFFFFFF` 随机查询最坏需要 2 次 D1 query。
-- `/get` 重建 KV 时最多执行 `PUBLIC_RANDOM_SIZE * 2` 次 D1 query，默认最多 40 次。
-- cron 每 30 分钟写一次同一个 KV key，每天约 48 次，低于 KV 写入限制。
+- `/get` 重建 KV 时最多执行 2 次 D1 query，默认最多返回 128 条。
+- cron 每小时写一次同一个 KV key，每天约 24 次，低于 KV 写入限制。
 
 ## 本地测试
 

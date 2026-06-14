@@ -9,7 +9,7 @@ routes = [
 [vars]
 MAX_BATCH_SIZE = "25"
 MAX_CONTENT_LENGTH = "2000"
-PUBLIC_RANDOM_SIZE = "20"
+PUBLIC_RANDOM_SIZE = "128"
 PUBLIC_RANDOM_KV_KEY = "random_history"
 D1_QUERY_BUDGET = "45"
 
@@ -23,4 +23,4 @@ binding = "kv_public_get"
 id = "0b785a0c925747bc99ad198106cf8e88"
 
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["0 * * * *"]
