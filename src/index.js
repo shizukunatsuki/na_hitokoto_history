@@ -406,7 +406,7 @@ function invalid(error, details = {}) {
 }
 
 function json(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body), {
+  return new Response(JSON.stringify(body, jsonReplacer), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
@@ -414,6 +414,14 @@ function json(body, status = 200, headers = {}) {
       ...headers,
     },
   });
+}
+
+function jsonReplacer(_key, value) {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  return value;
 }
 
 function isPlainObject(value) {

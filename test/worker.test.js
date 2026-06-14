@@ -233,6 +233,26 @@ test("add accepts upstream field aliases and delete accepts content_id", async (
   assert.equal((await response.json()).deleted, 1);
 });
 
+test("serializes D1 bigint metadata in JSON responses", async () => {
+  const env = createEnv({ HISTORY_DB: createD1({ useBigIntMeta: true }) });
+
+  let response = await fetchWorker(env, "/add", {
+    method: "POST",
+    body: { id: "2222222222222222", content: "bigint metadata" },
+  });
+
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).meta.last_row_id, "1");
+
+  response = await fetchWorker(env, "/delete", {
+    method: "POST",
+    body: { id: "2222222222222222" },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).meta.last_row_id, "1");
+});
+
 test("delete reports missing and invalid ids", async () => {
   const env = createEnv();
 
@@ -394,9 +414,13 @@ function createKv() {
   };
 }
 
-function createD1() {
+function createD1(options = {}) {
   const records = new Map();
   let queryCount = 0;
+  const meta = (changes) => ({
+    changes,
+    ...(options.useBigIntMeta ? { last_row_id: 1n } : {}),
+  });
 
   return {
     get queryCount() {
@@ -448,17 +472,17 @@ function createD1() {
           if (sql.includes("INSERT OR IGNORE INTO history")) {
             const [id, content, createdAt, updatedAt] = statement.params;
             if (records.has(id)) {
-              return { success: true, meta: { changes: 0 } };
+              return { success: true, meta: meta(0) };
             }
             assert.equal(typeof createdAt, "number");
             assert.equal(typeof updatedAt, "number");
             records.set(id, { id, content, created_at: createdAt, updated_at: updatedAt });
-            return { success: true, meta: { changes: 1 } };
+            return { success: true, meta: meta(1) };
           }
 
           if (sql.includes("DELETE FROM history WHERE id = ?")) {
             const deleted = records.delete(statement.params[0]) ? 1 : 0;
-            return { success: true, meta: { changes: deleted } };
+            return { success: true, meta: meta(deleted) };
           }
 
           throw new Error(`Unsupported run SQL: ${sql}`);
