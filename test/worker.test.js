@@ -210,7 +210,7 @@ test("public random rebuild stays under the default Free plan D1 query budget", 
   assert.deepEqual(await response.json(), {
     "1111111111111111": "only row",
   });
-  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 2);
+  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 1);
 });
 
 test("public random rebuild can return 128 entries", async () => {
@@ -227,7 +227,7 @@ test("public random rebuild can return 128 entries", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(Object.keys(body).length, 128);
-  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 2);
+  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 1);
   assert.deepEqual(await env.kv_public_get.get("random_history", "json"), body);
 });
 
@@ -529,17 +529,7 @@ function createD1(options = {}) {
             left.id.localeCompare(right.id),
           );
 
-          if (sql.includes("WHERE id >= ?")) {
-            const [id, limit] = statement.params;
-            return {
-              results: sortedRows
-                .filter((candidate) => candidate.id >= id)
-                .slice(0, limit)
-                .map((row) => ({ ...row })),
-            };
-          }
-
-          if (sql.includes("ORDER BY id ASC LIMIT ?")) {
+          if (sql.includes("ORDER BY RANDOM() LIMIT ?")) {
             const [limit] = statement.params;
             return {
               results: sortedRows.slice(0, limit).map((row) => ({ ...row })),

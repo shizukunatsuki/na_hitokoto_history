@@ -305,6 +305,8 @@ return generatedContent;
 
 当前最多返回 128 条历史内容。D1 中不足 128 条时，返回实际存在的数量。
 
+重建时使用 D1 的 `ORDER BY RANDOM() LIMIT ?` 抽样，因此 `/get` 返回的是随机样本，不是按 ID 连续截取的一段。
+
 ### `POST /delete`
 
 用途：删除历史内容，主要作为备用维护接口。
@@ -376,7 +378,8 @@ MAX_HISTORY_ROWS = "100000"
 
 - `/match` 会先估算 D1 query 数，超过 `D1_QUERY_BUDGET` 直接拒绝。
 - `FFFFFFFFFFFFFFFF` 随机查询最坏需要 2 次 D1 query。
-- `/get` 重建 KV 时最多执行 2 次 D1 query，默认最多返回 128 条。
+- `/get` 重建 KV 时执行 1 次 D1 query，默认最多随机返回 128 条；这次查询会读取当前 history 表用于随机排序。
+- `MAX_HISTORY_ROWS=100000` 且每小时刷新时，`/get` 的定时随机刷新约读取 240 万行/天，低于 D1 Free 的 500 万 rows read/day。
 - `/add` 会在行数达到 `MAX_HISTORY_ROWS` 时自动删除最早内容，避免 D1 持续增长到容量上限。
 - cron 每小时写一次同一个 KV key，每天约 24 次，低于 KV 写入限制。
 

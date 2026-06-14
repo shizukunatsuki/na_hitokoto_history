@@ -246,33 +246,17 @@ async function buildPublicRandomMap(env) {
     128,
   );
   const rows = new Map();
-  const randomId = createRandomId();
 
-  for (const row of await getRowsFromId(env, randomId, limit)) {
+  for (const row of await getRandomRows(env, limit)) {
     rows.set(row.id, row.content);
-  }
-
-  if (rows.size < limit) {
-    for (const row of await getRowsFromStart(env, limit - rows.size)) {
-      rows.set(row.id, row.content);
-    }
   }
 
   return Object.fromEntries(rows);
 }
 
-async function getRowsFromId(env, id, limit) {
+async function getRandomRows(env, limit) {
   const result = await env.HISTORY_DB.prepare(
-    "SELECT id, content FROM history WHERE id >= ? ORDER BY id ASC LIMIT ?",
-  )
-    .bind(id, limit)
-    .all();
-  return result.results ?? [];
-}
-
-async function getRowsFromStart(env, limit) {
-  const result = await env.HISTORY_DB.prepare(
-    "SELECT id, content FROM history ORDER BY id ASC LIMIT ?",
+    "SELECT id, content FROM history ORDER BY RANDOM() LIMIT ?",
   )
     .bind(limit)
     .all();
