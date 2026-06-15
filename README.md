@@ -251,6 +251,7 @@ return generatedContent;
 - `key` 中的 item 如果不是 16 位 HEX，则按内容查询 id。
 - `FFFFFFFFFFFFFFFF` 是保留随机 ID，会返回随机内容。
 - 随机 ID 返回时，map 的 key 会替换为真实 id，不会返回 `FFFFFFFFFFFFFFFF`。
+- 随机内容按当前表行数生成随机 row offset 后读取，因此每条历史记录的抽中概率相同。
 
 全部成功：
 
@@ -305,7 +306,7 @@ return generatedContent;
 
 当前最多返回 128 条历史内容。D1 中不足 128 条时，返回实际存在的数量。
 
-重建时使用 D1 的 `ORDER BY RANDOM() LIMIT ?` 抽样，因此 `/get` 返回的是随机样本，不是按 ID 连续截取的一段。
+重建时会先读取当前表行数，再生成不重复的随机 row offset，最后按稳定行序读取对应内容。因此 `/get` 返回的是随机样本，不是按 ID 连续截取的一段；当 D1 中不足 128 条时，会直接返回全部内容。
 
 ### `POST /delete`
 
@@ -377,9 +378,9 @@ MAX_HISTORY_ROWS = "50000"
 实现上的保护：
 
 - `/match` 会先估算 D1 query 数，超过 `D1_QUERY_BUDGET` 直接拒绝。
-- `FFFFFFFFFFFFFFFF` 随机查询最坏需要 2 次 D1 query。
-- `/get` 重建 KV 时执行 1 次 D1 query，默认最多随机返回 128 条；这次查询会读取当前 history 表用于随机排序。
-- `MAX_HISTORY_ROWS=50000` 且每小时刷新时，`/get` 的定时随机刷新约读取 120 万行/天，低于 D1 Free 的 500 万 rows read/day。
+- `FFFFFFFFFFFFFFFF` 随机查询使用 `COUNT(*) + OFFSET`，需要 2 次 D1 query；随机性按行均匀，不依赖 id 分布。
+- `/get` 重建 KV 时使用 `COUNT(*) + ROW_NUMBER()` 抽样，默认最多随机返回 128 条，不使用 `ORDER BY RANDOM()`。
+- `MAX_HISTORY_ROWS=50000` 且每小时刷新时，`/get` 的定时随机刷新最保守按两次全表读取估算约 240 万行/天，低于 D1 Free 的 500 万 rows read/day。
 - `/add` 会在行数达到 `MAX_HISTORY_ROWS` 时自动删除最早内容，避免 D1 持续增长到容量上限。
 - cron 每小时写一次同一个 KV key，每天约 24 次，低于 KV 写入限制。
 

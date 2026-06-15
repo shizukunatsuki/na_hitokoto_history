@@ -136,6 +136,7 @@ test("match returns 404 when no key can be resolved", async () => {
 test("reserved match id resolves to a real random id", async () => {
   const env = createEnv();
   await seedHistory(env, [["CCCCCCCCCCCCCCCC", "random value"]]);
+  const queriesBeforeMatch = env.HISTORY_DB.queryCount;
 
   const response = await fetchWorker(env, "/match", {
     method: "POST",
@@ -150,6 +151,7 @@ test("reserved match id resolves to a real random id", async () => {
     all_succeed: true,
     failed: [],
   });
+  assert.equal(env.HISTORY_DB.queryCount - queriesBeforeMatch, 2);
 });
 
 test("get returns cached KV data or rebuilds it from D1 on miss", async () => {
@@ -210,7 +212,7 @@ test("public random rebuild stays under the default Free plan D1 query budget", 
   assert.deepEqual(await response.json(), {
     "1111111111111111": "only row",
   });
-  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 1);
+  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 2);
 });
 
 test("public random rebuild can return 128 entries", async () => {
@@ -227,7 +229,7 @@ test("public random rebuild can return 128 entries", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(Object.keys(body).length, 128);
-  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 1);
+  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 2);
   assert.deepEqual(await env.kv_public_get.get("random_history", "json"), body);
 });
 
@@ -499,19 +501,17 @@ function createD1(options = {}) {
             return { count: records.size };
           }
 
-          if (sql.includes("WHERE id >= ?")) {
-            const id = statement.params[0];
-            const row = [...records.values()]
-              .sort((left, right) => left.id.localeCompare(right.id))
-              .find((candidate) => candidate.id >= id);
-            return row ? { ...row } : null;
-          }
-
           if (sql.includes("WHERE content = ?")) {
             const row = [...records.values()].find(
               (candidate) => candidate.content === statement.params[0],
             );
             return row ? { id: row.id } : null;
+          }
+
+          if (sql.includes("LIMIT 1 OFFSET ?")) {
+            const offset = statement.params[0];
+            const row = [...records.values()].sort(compareHistoryRows)[offset];
+            return row ? { ...row } : null;
           }
 
           if (sql.includes("ORDER BY id ASC LIMIT 1")) {
@@ -525,14 +525,15 @@ function createD1(options = {}) {
         },
         async all() {
           queryCount++;
-          const sortedRows = [...records.values()].sort((left, right) =>
-            left.id.localeCompare(right.id),
-          );
+          const sortedRows = [...records.values()].sort(compareHistoryRows);
 
-          if (sql.includes("ORDER BY RANDOM() LIMIT ?")) {
-            const [limit] = statement.params;
+          if (sql.includes("ROW_NUMBER() OVER")) {
+            const offsets = new Set(statement.params);
             return {
-              results: sortedRows.slice(0, limit).map((row) => ({ ...row })),
+              results: sortedRows
+                .map((row, index) => ({ ...row, row_offset: index }))
+                .filter((row) => offsets.has(row.row_offset))
+                .map(({ row_offset: _rowOffset, ...row }) => row),
             };
           }
 
@@ -583,4 +584,8 @@ function createD1(options = {}) {
       return statement;
     },
   };
+}
+
+function compareHistoryRows(left, right) {
+  return left.created_at - right.created_at || left.id.localeCompare(right.id);
 }
