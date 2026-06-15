@@ -302,11 +302,19 @@ return generatedContent;
 }
 ```
 
-数据来自 KV 的 `random_history` key。cron 每小时刷新一次。KV miss 时会从 D1 重建并写回 KV；如果 D1 为空，则返回 `{}`。
+数据来自 KV。`random_history` key 只保存当前公开随机历史的 ID 索引，具体内容按 `id -> content` 分别存为独立 KV 记录，避免把 128 条文本塞进单条 KV value。
+
+cron 每小时刷新一次索引。KV miss 时会从 D1 重建并写回 KV；如果 D1 为空，则返回 `{}`。
 
 当前最多返回 128 条历史内容。D1 中不足 128 条时，返回实际存在的数量。
 
 重建时使用 D1 的 `ORDER BY RANDOM() LIMIT ?` 抽样。因此 `/get` 返回的是随机样本，不是按 ID 连续截取的一段；当 D1 中不足 128 条时，会直接返回全部内容。
+
+写入和删除会尽量同步维护单条内容 KV：
+
+- `/add` 成功后写入 `id -> content`。
+- `/delete` 成功后删除对应 `id` 的 KV 记录。
+- 如果公开随机索引为空或未满，`/add` 会把新 id 追加到索引，避免 D1 曾为空时 `/get` 一直返回 `{}`。
 
 ### `POST /delete`
 
@@ -381,8 +389,9 @@ MAX_HISTORY_ROWS = "50000"
 - `FFFFFFFFFFFFFFFF` 随机查询使用 `ORDER BY RANDOM() LIMIT 1`，需要 1 次 D1 query；随机性按行均匀，不依赖 id 分布。
 - `/get` 重建 KV 时使用 `ORDER BY RANDOM() LIMIT ?` 抽样，默认最多随机返回 128 条，需要 1 次 D1 query。
 - `MAX_HISTORY_ROWS=50000` 且每小时刷新时，`/get` 的定时随机刷新约读取 120 万行/天，低于 D1 Free 的 500 万 rows read/day。
+- `/get` 命中 KV 时会读取 1 条索引和最多 128 条内容记录，因此公开访问量很高时，KV reads 会比旧的单 value 缓存更快增长。
 - `/add` 会在行数达到 `MAX_HISTORY_ROWS` 时自动删除最早内容，避免 D1 持续增长到容量上限。
-- cron 每小时写一次同一个 KV key，每天约 24 次，低于 KV 写入限制。
+- cron 每小时至少写一次索引 key。内容记录只有缺失或变化时才写入，正常情况下主要由 `/add` 每小时写入一条 `id -> content`。
 
 ## 本地测试
 

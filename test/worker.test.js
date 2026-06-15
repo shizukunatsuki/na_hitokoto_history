@@ -15,6 +15,7 @@ test("add, match, random get, and delete history content", async () => {
     id: "0123456789ABCDEF",
     inserted: 1,
   });
+  assert.equal(await env.kv_public_get.get("0123456789ABCDEF"), "hello history");
 
   response = await fetchWorker(env, "/add", {
     method: "POST",
@@ -43,6 +44,10 @@ test("add, match, random get, and delete history content", async () => {
   assert.deepEqual(await response.json(), {
     "0123456789ABCDEF": "hello history",
   });
+  assert.deepEqual(await env.kv_public_get.get("random_history", "json"), [
+    "0123456789ABCDEF",
+  ]);
+  assert.equal(await env.kv_public_get.get("0123456789ABCDEF"), "hello history");
 
   response = await fetchWorker(env, "/delete", {
     method: "POST",
@@ -50,6 +55,7 @@ test("add, match, random get, and delete history content", async () => {
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).deleted, 1);
+  assert.equal(await env.kv_public_get.get("0123456789ABCDEF"), null);
 
   response = await fetchWorker(env, "/match", {
     method: "POST",
@@ -156,15 +162,13 @@ test("reserved match id resolves to a real random id", async () => {
 
 test("get returns cached KV data or rebuilds it from D1 on miss", async () => {
   const env = createEnv();
-  await env.kv_public_get.put(
-    "random_history",
-    JSON.stringify({ CACHED0000000000: "cached content" }),
-  );
+  await env.kv_public_get.put("CAFE000000000000", "cached content");
+  await env.kv_public_get.put("random_history", JSON.stringify(["CAFE000000000000"]));
 
   let response = await worker.fetch(new Request("https://example.com/get"), env);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
-    CACHED0000000000: "cached content",
+    CAFE000000000000: "cached content",
   });
 
   const fallbackEnv = createEnv({ PUBLIC_RANDOM_SIZE: "1" });
@@ -181,7 +185,28 @@ test("get returns cached KV data or rebuilds it from D1 on miss", async () => {
     body.DDDDDDDDDDDDDDDD === "first public" ||
       body.EEEEEEEEEEEEEEEE === "second public",
   );
-  assert.deepEqual(await fallbackEnv.kv_public_get.get("random_history", "json"), body);
+  const cachedIds = await fallbackEnv.kv_public_get.get("random_history", "json");
+  assert.deepEqual(cachedIds, Object.keys(body));
+  assert.equal(await fallbackEnv.kv_public_get.get(cachedIds[0]), Object.values(body)[0]);
+});
+
+test("get migrates the old single-record public random KV cache", async () => {
+  const env = createEnv();
+  await env.kv_public_get.put(
+    "random_history",
+    JSON.stringify({ ABCD000000000000: "old cached content" }),
+  );
+
+  const response = await worker.fetch(new Request("https://example.com/get"), env);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ABCD000000000000: "old cached content",
+  });
+  assert.deepEqual(await env.kv_public_get.get("random_history", "json"), [
+    "ABCD000000000000",
+  ]);
+  assert.equal(await env.kv_public_get.get("ABCD000000000000"), "old cached content");
 });
 
 test("scheduled refresh writes public random content to KV", async () => {
@@ -196,9 +221,10 @@ test("scheduled refresh writes public random content to KV", async () => {
   });
   await Promise.all(promises);
 
-  assert.deepEqual(await env.kv_public_get.get("scheduled_random", "json"), {
-    "1111111111111111": "scheduled content",
-  });
+  assert.deepEqual(await env.kv_public_get.get("scheduled_random", "json"), [
+    "1111111111111111",
+  ]);
+  assert.equal(await env.kv_public_get.get("1111111111111111"), "scheduled content");
 });
 
 test("public random rebuild stays under the default Free plan D1 query budget", async () => {
@@ -230,7 +256,10 @@ test("public random rebuild can return 128 entries", async () => {
   assert.equal(response.status, 200);
   assert.equal(Object.keys(body).length, 128);
   assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 1);
-  assert.deepEqual(await env.kv_public_get.get("random_history", "json"), body);
+  assert.deepEqual(await env.kv_public_get.get("random_history", "json"), Object.keys(body));
+  for (const [id, content] of Object.entries(body)) {
+    assert.equal(await env.kv_public_get.get(id), content);
+  }
 });
 
 test("add accepts upstream field aliases and delete accepts content_id", async () => {
@@ -251,6 +280,33 @@ test("add accepts upstream field aliases and delete accepts content_id", async (
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).deleted, 1);
+});
+
+test("add and delete keep an underfilled public random index usable", async () => {
+  const env = createEnv({ PUBLIC_RANDOM_SIZE: "2" });
+  await env.kv_public_get.put("random_history", JSON.stringify([]));
+
+  let response = await fetchWorker(env, "/add", {
+    method: "POST",
+    body: { id: "1234567890ABCDEF", content: "indexed content" },
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await env.kv_public_get.get("random_history", "json"), [
+    "1234567890ABCDEF",
+  ]);
+
+  response = await worker.fetch(new Request("https://example.com/get"), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    "1234567890ABCDEF": "indexed content",
+  });
+
+  response = await fetchWorker(env, "/delete", {
+    method: "POST",
+    body: { id: "1234567890ABCDEF" },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await env.kv_public_get.get("random_history", "json"), []);
 });
 
 test("add prunes the oldest history row when the row cap is reached", async () => {
@@ -474,6 +530,9 @@ function createKv() {
     async put(key, value) {
       records.set(key, value);
     },
+    async delete(key) {
+      records.delete(key);
+    },
   };
 }
 
@@ -584,8 +643,4 @@ function createD1(options = {}) {
       return statement;
     },
   };
-}
-
-function compareHistoryRows(left, right) {
-  return left.created_at - right.created_at || left.id.localeCompare(right.id);
 }

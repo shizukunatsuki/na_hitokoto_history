@@ -126,16 +126,13 @@ async function handleGet(request, env) {
   const methodError = requireMethod(request, "GET");
   if (methodError) return methodError;
 
-  const key = getPublicRandomKvKey(env);
-  const cached = await env.kv_public_get.get(key, "json");
-  if (cached && typeof cached === "object" && !Array.isArray(cached)) {
+  const cached = await readPublicRandomKv(env);
+  if (cached !== null) {
     return json(cached);
   }
 
   const data = await buildPublicRandomMap(env);
-  if (Object.keys(data).length > 0) {
-    await env.kv_public_get.put(key, JSON.stringify(data));
-  }
+  await writePublicRandomKv(env, data);
 
   return json(data);
 }
@@ -183,6 +180,9 @@ async function handleAdd(request, env) {
     );
   }
 
+  await writePublicRandomItemBestEffort(env, validation.id, validation.content);
+  await appendPublicRandomIndexBestEffort(env, validation.id);
+
   return json({ ok: true, id: validation.id, inserted: 1 }, 201);
 }
 
@@ -225,6 +225,9 @@ async function handleDelete(request, env) {
     return json({ error: "id_not_found", id: validation.id, deleted: 0 }, 404);
   }
 
+  await deletePublicRandomItemBestEffort(env, validation.id);
+  await removePublicRandomIndexBestEffort(env, validation.id);
+
   return json({
     ok: result.success,
     id: validation.id,
@@ -235,7 +238,110 @@ async function handleDelete(request, env) {
 
 async function refreshPublicRandomKv(env) {
   const data = await buildPublicRandomMap(env);
-  await env.kv_public_get.put(getPublicRandomKvKey(env), JSON.stringify(data));
+  await writePublicRandomKv(env, data);
+}
+
+async function readPublicRandomKv(env) {
+  const cached = await env.kv_public_get.get(getPublicRandomKvKey(env), "json");
+  if (Array.isArray(cached)) {
+    return await readPublicRandomItems(env, cached);
+  }
+
+  if (cached && typeof cached === "object") {
+    await writePublicRandomKv(env, cached);
+    return cached;
+  }
+
+  return null;
+}
+
+async function readPublicRandomItems(env, ids) {
+  const data = {};
+
+  for (const id of ids) {
+    if (typeof id !== "string" || !HEX_16_RE.test(id)) {
+      return null;
+    }
+
+    const normalizedId = normalizeId(id);
+    const content = await env.kv_public_get.get(normalizedId);
+    if (typeof content !== "string") {
+      return null;
+    }
+
+    data[normalizedId] = content;
+  }
+
+  return data;
+}
+
+async function writePublicRandomKv(env, data) {
+  const ids = Object.keys(data);
+
+  for (const id of ids) {
+    await writePublicRandomItemIfChanged(env, id, data[id]);
+  }
+
+  await env.kv_public_get.put(getPublicRandomKvKey(env), JSON.stringify(ids));
+}
+
+async function writePublicRandomItemIfChanged(env, id, content) {
+  const cached = await env.kv_public_get.get(id);
+  if (cached === content) return;
+
+  await env.kv_public_get.put(id, content);
+}
+
+async function writePublicRandomItemBestEffort(env, id, content) {
+  try {
+    await env.kv_public_get.put(id, content);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function deletePublicRandomItemBestEffort(env, id) {
+  try {
+    await env.kv_public_get.delete(id);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function appendPublicRandomIndexBestEffort(env, id) {
+  try {
+    const ids = await env.kv_public_get.get(getPublicRandomKvKey(env), "json");
+    if (!Array.isArray(ids) || ids.includes(id)) return;
+
+    const limit = getPositiveInteger(
+      env.PUBLIC_RANDOM_SIZE,
+      DEFAULT_PUBLIC_RANDOM_SIZE,
+      1,
+      128,
+    );
+    if (ids.length >= limit) return;
+
+    await env.kv_public_get.put(
+      getPublicRandomKvKey(env),
+      JSON.stringify([...ids, id]),
+    );
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function removePublicRandomIndexBestEffort(env, id) {
+  try {
+    const ids = await env.kv_public_get.get(getPublicRandomKvKey(env), "json");
+    if (!Array.isArray(ids) || !ids.includes(id)) return;
+
+    await env.kv_public_get.put(
+      getPublicRandomKvKey(env),
+      JSON.stringify(ids.filter((cachedId) => cachedId !== id)),
+    );
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 async function buildPublicRandomMap(env) {
