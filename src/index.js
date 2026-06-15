@@ -6,7 +6,6 @@ const DEFAULT_PUBLIC_RANDOM_SIZE = 128;
 const DEFAULT_PUBLIC_RANDOM_KV_KEY = "random_history";
 const DEFAULT_D1_QUERY_BUDGET = 45;
 const DEFAULT_MAX_HISTORY_ROWS = 50000;
-const MAX_D1_BOUND_PARAMETERS = 100;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -256,42 +255,10 @@ async function buildPublicRandomMap(env) {
 }
 
 async function getRandomRows(env, limit) {
-  const row = await env.HISTORY_DB.prepare(
-    "SELECT COUNT(*) AS count FROM history",
-  ).first();
-  const count = Number(row?.count ?? 0);
-  if (count <= 0) return [];
-
-  const offsets = createRandomOffsets(count, limit);
-  if (offsets.length === 0) return [];
-
-  if (offsets.length === 1) {
-    const randomRow = await env.HISTORY_DB.prepare(
-      "SELECT id, content FROM history ORDER BY created_at ASC, id ASC LIMIT 1 OFFSET ?",
-    )
-      .bind(offsets[0])
-      .first();
-    return randomRow ? [randomRow] : [];
-  }
-
-  const rows = [];
-  for (let index = 0; index < offsets.length; index += MAX_D1_BOUND_PARAMETERS) {
-    const chunk = offsets.slice(index, index + MAX_D1_BOUND_PARAMETERS);
-    rows.push(...(await getRowsByOffsets(env, chunk)));
-  }
-  return rows;
-}
-
-async function getRowsByOffsets(env, offsets) {
-  const placeholders = offsets.map(() => "?").join(", ");
   const result = await env.HISTORY_DB.prepare(
-    `SELECT id, content FROM (
-      SELECT id, content, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) - 1 AS row_offset
-      FROM history
-    ) WHERE row_offset IN (${placeholders})
-    ORDER BY row_offset ASC`,
+    "SELECT id, content FROM history ORDER BY RANDOM() LIMIT ?",
   )
-    .bind(...offsets)
+    .bind(limit)
     .all();
   return result.results ?? [];
 }
@@ -340,7 +307,7 @@ function validateMatchPayload(payload, env) {
     }
 
     keys.push(key);
-    estimatedD1Queries += isReservedId(key) ? 2 : 1;
+    estimatedD1Queries += 1;
   }
 
   const d1QueryBudget = getPositiveInteger(
@@ -515,43 +482,6 @@ function getMaxHistoryRows(env) {
     0,
     1000000,
   );
-}
-
-function createRandomOffsets(count, limit) {
-  const target = Math.min(count, limit);
-  if (target <= 0) return [];
-
-  if (target === count) {
-    return Array.from({ length: count }, (_, index) => index);
-  }
-
-  if (target > count / 2) {
-    const offsets = Array.from({ length: count }, (_, index) => index);
-    for (let index = 0; index < target; index++) {
-      const swapIndex = index + createRandomInteger(count - index);
-      [offsets[index], offsets[swapIndex]] = [offsets[swapIndex], offsets[index]];
-    }
-    return offsets.slice(0, target).sort((left, right) => left - right);
-  }
-
-  const offsets = new Set();
-  while (offsets.size < target) {
-    offsets.add(createRandomInteger(count));
-  }
-  return [...offsets].sort((left, right) => left - right);
-}
-
-function createRandomInteger(maxExclusive) {
-  const maxUint32 = 0x100000000;
-  const limit = Math.floor(maxUint32 / maxExclusive) * maxExclusive;
-  const values = new Uint32Array(1);
-
-  while (true) {
-    crypto.getRandomValues(values);
-    if (values[0] < limit) {
-      return values[0] % maxExclusive;
-    }
-  }
 }
 
 function getPositiveInteger(value, fallback, min, max) {
