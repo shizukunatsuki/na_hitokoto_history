@@ -247,11 +247,6 @@ async function readPublicRandomKv(env) {
     return await readPublicRandomItems(env, cached);
   }
 
-  if (cached && typeof cached === "object") {
-    await writePublicRandomKv(env, cached);
-    return cached;
-  }
-
   return null;
 }
 

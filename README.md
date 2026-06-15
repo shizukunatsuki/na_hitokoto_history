@@ -389,7 +389,7 @@ MAX_HISTORY_ROWS = "50000"
 - `FFFFFFFFFFFFFFFF` 随机查询使用 `ORDER BY RANDOM() LIMIT 1`，需要 1 次 D1 query；随机性按行均匀，不依赖 id 分布。
 - `/get` 重建 KV 时使用 `ORDER BY RANDOM() LIMIT ?` 抽样，默认最多随机返回 128 条，需要 1 次 D1 query。
 - `MAX_HISTORY_ROWS=50000` 且每小时刷新时，`/get` 的定时随机刷新约读取 120 万行/天，低于 D1 Free 的 500 万 rows read/day。
-- `/get` 命中 KV 时会读取 1 条索引和最多 128 条内容记录，因此公开访问量很高时，KV reads 会比旧的单 value 缓存更快增长。
+- `/get` 命中 KV 时会读取 1 条索引和最多 128 条内容记录，因此公开访问量很高时需要注意 KV reads。
 - `/add` 会在行数达到 `MAX_HISTORY_ROWS` 时自动删除最早内容，避免 D1 持续增长到容量上限。
 - cron 每小时至少写一次索引 key。内容记录只有缺失或变化时才写入，正常情况下主要由 `/add` 每小时写入一条 `id -> content`。
 

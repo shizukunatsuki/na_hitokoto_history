@@ -190,23 +190,23 @@ test("get returns cached KV data or rebuilds it from D1 on miss", async () => {
   assert.equal(await fallbackEnv.kv_public_get.get(cachedIds[0]), Object.values(body)[0]);
 });
 
-test("get migrates the old single-record public random KV cache", async () => {
+test("get treats non-list public random indexes as a cache miss", async () => {
   const env = createEnv();
   await env.kv_public_get.put(
     "random_history",
-    JSON.stringify({ ABCD000000000000: "old cached content" }),
+    JSON.stringify({ ABCD000000000000: "invalid cached content" }),
   );
+  await seedHistory(env, [["1111111111111111", "rebuilt content"]]);
 
   const response = await worker.fetch(new Request("https://example.com/get"), env);
 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
-    ABCD000000000000: "old cached content",
+    "1111111111111111": "rebuilt content",
   });
   assert.deepEqual(await env.kv_public_get.get("random_history", "json"), [
-    "ABCD000000000000",
+    "1111111111111111",
   ]);
-  assert.equal(await env.kv_public_get.get("ABCD000000000000"), "old cached content");
 });
 
 test("scheduled refresh writes public random content to KV", async () => {
