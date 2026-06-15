@@ -216,7 +216,10 @@ test("public random rebuild stays under the default Free plan D1 query budget", 
 });
 
 test("public random rebuild can return 128 entries", async () => {
-  const env = createEnv({ PUBLIC_RANDOM_SIZE: "128" });
+  const env = createEnv({
+    PUBLIC_RANDOM_SIZE: "128",
+    HISTORY_DB: createD1({ maxBoundParameters: 100 }),
+  });
   const entries = Array.from({ length: 150 }, (_, index) => [
     index.toString(16).padStart(16, "0").toUpperCase(),
     `history content ${index}`,
@@ -229,7 +232,7 @@ test("public random rebuild can return 128 entries", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(Object.keys(body).length, 128);
-  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 2);
+  assert.ok(env.HISTORY_DB.queryCount - queriesBeforeGet <= 3);
   assert.deepEqual(await env.kv_public_get.get("random_history", "json"), body);
 });
 
@@ -487,6 +490,12 @@ function createD1(options = {}) {
       const statement = {
         params: [],
         bind(...params) {
+          if (options.maxBoundParameters) {
+            assert.ok(
+              params.length <= options.maxBoundParameters,
+              `too many bound parameters: ${params.length}`,
+            );
+          }
           statement.params = params;
           return statement;
         },

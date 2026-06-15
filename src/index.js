@@ -6,6 +6,7 @@ const DEFAULT_PUBLIC_RANDOM_SIZE = 128;
 const DEFAULT_PUBLIC_RANDOM_KV_KEY = "random_history";
 const DEFAULT_D1_QUERY_BUDGET = 45;
 const DEFAULT_MAX_HISTORY_ROWS = 50000;
+const MAX_D1_BOUND_PARAMETERS = 100;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -273,6 +274,15 @@ async function getRandomRows(env, limit) {
     return randomRow ? [randomRow] : [];
   }
 
+  const rows = [];
+  for (let index = 0; index < offsets.length; index += MAX_D1_BOUND_PARAMETERS) {
+    const chunk = offsets.slice(index, index + MAX_D1_BOUND_PARAMETERS);
+    rows.push(...(await getRowsByOffsets(env, chunk)));
+  }
+  return rows;
+}
+
+async function getRowsByOffsets(env, offsets) {
   const placeholders = offsets.map(() => "?").join(", ");
   const result = await env.HISTORY_DB.prepare(
     `SELECT id, content FROM (

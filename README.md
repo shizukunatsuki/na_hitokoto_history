@@ -379,8 +379,8 @@ MAX_HISTORY_ROWS = "50000"
 
 - `/match` 会先估算 D1 query 数，超过 `D1_QUERY_BUDGET` 直接拒绝。
 - `FFFFFFFFFFFFFFFF` 随机查询使用 `COUNT(*) + OFFSET`，需要 2 次 D1 query；随机性按行均匀，不依赖 id 分布。
-- `/get` 重建 KV 时使用 `COUNT(*) + ROW_NUMBER()` 抽样，默认最多随机返回 128 条，不使用 `ORDER BY RANDOM()`。
-- `MAX_HISTORY_ROWS=50000` 且每小时刷新时，`/get` 的定时随机刷新最保守按两次全表读取估算约 240 万行/天，低于 D1 Free 的 500 万 rows read/day。
+- `/get` 重建 KV 时使用 `COUNT(*) + ROW_NUMBER()` 抽样，默认最多随机返回 128 条，不使用 `ORDER BY RANDOM()`；为避开 D1 单条 SQL 最多 100 个绑定参数的限制，128 条会拆成两批读取。
+- `MAX_HISTORY_ROWS=50000` 且每小时刷新时，`/get` 的定时随机刷新最保守按三次全表读取估算约 360 万行/天，低于 D1 Free 的 500 万 rows read/day。
 - `/add` 会在行数达到 `MAX_HISTORY_ROWS` 时自动删除最早内容，避免 D1 持续增长到容量上限。
 - cron 每小时写一次同一个 KV key，每天约 24 次，低于 KV 写入限制。
 
